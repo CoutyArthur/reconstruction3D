@@ -317,17 +317,19 @@ if __name__ == '__main__':
     if True:
 
         # Cloud paths
-        bunny_o_path = '../data/Notre_Dame_Des_Champs_1.ply'
-        bunny_p_path = '../data/Notre_Dame_Des_Champs_2.ply'
+        ND_o_path = '../data/Notre_Dame_Des_Champs_1.ply'
+        ND_p_path = '../data/Notre_Dame_Des_Champs_2.ply'
         
         # Load clouds
-        bunny_o_ply = read_ply(bunny_o_path)
-        bunny_p_ply = read_ply(bunny_p_path)
-        bunny_o = np.vstack((bunny_o_ply['x'], bunny_o_ply['y'], bunny_o_ply['z']))
-        bunny_p = np.vstack((bunny_p_ply['x'], bunny_p_ply['y'], bunny_p_ply['z']))
+        ND_o_ply = read_ply(ND_o_path)
+        ND_p_ply = read_ply(ND_p_path)
+        ND_o = np.vstack((ND_o_ply['x'], ND_o_ply['y'], ND_o_ply['z']))
+        ND_p = np.vstack((ND_p_ply['x'], ND_p_ply['y'], ND_p_ply['z']))
 
         # Apply ICP
-        bunny_p_opt, R_list, T_list, neighbors_list, RMS_list = icp_point_to_point_fast(bunny_p, bunny_o, 25, 1e-4, 10000)
+        ND_p_opt, R_list, T_list, neighbors_list, RMS_list = icp_point_to_point_fast(ND_p, ND_o, 25, 1e-4, 10000)
+        
+        write_ply('../Notre_Dame_Des_Champs_r_opt.ply', [ND_p_opt.T], ['x', 'y', 'z'])
         
         # Show ICP
         #show_ICP(bunny_p, bunny_o, R_list, T_list, neighbors_list)
