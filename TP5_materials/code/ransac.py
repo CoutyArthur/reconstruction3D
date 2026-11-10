@@ -87,7 +87,7 @@ def in_plane_normals(points, normals, pt_plane, normal_plane, threshold_in=0.1, 
 
 def RANSAC(points, nb_draws=100, threshold_in=0.1):
     
-    best_vote = 3
+    best_vote = 0
     best_pt_plane = np.zeros((3))
     best_normal_plane = np.zeros((3))
 
@@ -106,8 +106,32 @@ def RANSAC(points, nb_draws=100, threshold_in=0.1):
                 
     return best_pt_plane, best_normal_plane, best_vote
 
+def RANSAC_fast(points, nb_draws=100, threshold_in=0.1, sample_ratio=0.05, nb_candidates=5):
+    n = len(points)
+    m = min(n, max(2000, int(sample_ratio * n)))
+    sub = points[np.random.choice(n, m, replace=False)]      # sous-échantillon pour le vote
 
-def recursive_RANSAC(points, nb_draws=100, threshold_in=0.1, nb_planes=2):
+    candidates = []                                          # (votes sur sub, point, normale)
+    for _ in range(nb_draws):
+        idx = random.sample(range(m), 3)
+        pt, nor = compute_plane(sub[idx])
+        if nor is None:
+            continue
+        vote = np.count_nonzero(in_plane(sub, pt, nor, threshold_in))
+        candidates.append((vote, pt, nor))
+
+    # Validation des meilleures hypothèses sur le nuage complet
+    candidates.sort(key=lambda c: c[0], reverse=True)
+    best_vote, best_pt, best_nor = 0, np.zeros(3), np.zeros(3)
+    for _, pt, nor in candidates[:nb_candidates]:
+        vote = np.count_nonzero(in_plane(points, pt, nor, threshold_in))
+        if vote > best_vote:
+            best_vote, best_pt, best_nor = vote, pt, nor
+
+    return best_pt, best_nor, best_vote
+
+
+def recursive_RANSAC(points, nb_draws=100, threshold_in=0.1, nb_planes=2, ransac_fn=RANSAC):
     
     
     nb_points = len(points)
@@ -120,7 +144,7 @@ def recursive_RANSAC(points, nb_draws=100, threshold_in=0.1, nb_planes=2):
         return plane_inds, remaining_inds, plane_labels
 
     # Meilleur plan du nuage courant
-    pt_plane, normal_plane, vote = RANSAC(points, nb_draws, threshold_in)
+    pt_plane, normal_plane, vote = ransac_fn(points, nb_draws, threshold_in)
     if vote == 0:                           # aucun plan valide trouvé
         return plane_inds, remaining_inds, plane_labels
 
@@ -132,7 +156,7 @@ def recursive_RANSAC(points, nb_draws=100, threshold_in=0.1, nb_planes=2):
 
     # Appel récursif sur les points restants, avec un plan de moins à chercher
     sub_plane_inds, sub_remaining_inds, sub_plane_labels = recursive_RANSAC(
-        points[remaining_inds], nb_draws, threshold_in, nb_planes - 1)
+        points[remaining_inds], nb_draws, threshold_in, nb_planes - 1, ransac_fn)
 
     # Retour aux indices du nuage courant, et décalage des labels
     plane_inds = np.concatenate((plane_inds, remaining_inds[sub_plane_inds]))
@@ -164,8 +188,44 @@ def RANSAC_normals(points, normals, nb_draws=100, threshold_in=0.1, threshold_an
 
     return best_pt_plane, best_normal_plane, best_vote
 
+def RANSAC_normals_fast(points, normals, nb_draws=100, threshold_in=0.1, threshold_angle=25,
+                        sample_ratio=0.05, nb_candidates=5, min_sample=20000, max_tries_factor=50):
+    n = len(points)
+    m = min(n, max(min_sample, int(sample_ratio * n))) 
+    sel = np.random.choice(n, m, replace=False)
+    sub_pts, sub_nor = points[sel], normals[sel]            # mêmes indices pour points et normales
+    cos_t = np.cos(np.radians(threshold_angle))
 
-def recursive_RANSAC_normals(points, normals, nb_draws=100, threshold_in=0.1, threshold_angle=25, nb_planes=5):
+    candidates = []
+    tries, max_tries = 0, nb_draws * max_tries_factor
+    while len(candidates) < nb_draws and tries < max_tries:  # on ne compte que les tirages acceptés
+        tries += 1
+        idx = random.sample(range(m), 3)
+    for _ in range(nb_draws):
+        idx = random.sample(range(m), 3)
+        pt, nor = compute_plane(sub_pts[idx])
+        if nor is None:
+            continue
+        # Pré-filtre : les 3 points tirés doivent avoir une normale alignée avec celle du plan
+        if np.any(np.abs(sub_nor[idx] @ nor) < cos_t):
+            continue
+        vote = np.count_nonzero(in_plane_normals(sub_pts, sub_nor, pt, nor, threshold_in, threshold_angle))
+        candidates.append((vote, pt, nor))
+
+    if not candidates:                                       # repli : version de référence
+        return RANSAC_normals(points, normals, nb_draws, threshold_in, threshold_angle)
+    # Validation des meilleures hypothèses sur le nuage complet
+    candidates.sort(key=lambda c: c[0], reverse=True)
+    best_vote, best_pt, best_nor = 0, np.zeros(3), np.zeros(3)
+    for _, pt, nor in candidates[:nb_candidates]:
+        vote = np.count_nonzero(in_plane_normals(points, normals, pt, nor, threshold_in, threshold_angle))
+        if vote > best_vote:
+            best_vote, best_pt, best_nor = vote, pt, nor
+
+    return best_pt, best_nor, best_vote
+
+
+def recursive_RANSAC_normals(points, normals, nb_draws=100, threshold_in=0.1, threshold_angle=25, nb_planes=5, ransac_fn=RANSAC_normals):
 
     nb_points = len(points)
     plane_inds = np.arange(0,0)
@@ -175,7 +235,7 @@ def recursive_RANSAC_normals(points, normals, nb_draws=100, threshold_in=0.1, th
     if nb_planes == 0 or nb_points < 3:
         return plane_inds, remaining_inds, plane_labels
 
-    pt_plane, normal_plane, vote = RANSAC_normals(points, normals, nb_draws, threshold_in, threshold_angle)
+    pt_plane, normal_plane, vote = ransac_fn(points, normals, nb_draws, threshold_in, threshold_angle)
     if vote == 0:
         return plane_inds, remaining_inds, plane_labels
 
@@ -187,7 +247,7 @@ def recursive_RANSAC_normals(points, normals, nb_draws=100, threshold_in=0.1, th
     # Appel récursif sur les points (et leurs normales) restants
     sub_plane_inds, sub_remaining_inds, sub_plane_labels = recursive_RANSAC_normals(
         points[remaining_inds], normals[remaining_inds],
-        nb_draws, threshold_in, threshold_angle, nb_planes - 1)
+        nb_draws, threshold_in, threshold_angle, nb_planes - 1, ransac_fn)
 
     plane_inds = np.concatenate((plane_inds, remaining_inds[sub_plane_inds]))
     plane_labels = np.concatenate((plane_labels, sub_plane_labels + 1))
@@ -274,7 +334,7 @@ if __name__ == '__main__':
 
     # Define parameters of RANSAC
     nb_draws = 100
-    threshold_in = 0.10
+    #threshold_in = 0.10
 
     # Find best plane by RANSAC
     t0 = time.time()
@@ -301,8 +361,8 @@ if __name__ == '__main__':
     
     # Define parameters of recursive_RANSAC
     nb_draws = 100
-    threshold_in = 0.10
-    nb_planes = 2
+    #threshold_in = 0.10
+    nb_planes = 5
     
     # Recursively find best plane by RANSAC
     t0 = time.time()
@@ -314,7 +374,7 @@ if __name__ == '__main__':
     write_ply('../best_planes.ply', [points[plane_inds], colors[plane_inds], labels[plane_inds], plane_labels.astype(np.int32)], ['x', 'y', 'z', 'red', 'green', 'blue', 'label', 'plane_label'])
     write_ply('../remaining_points_best_planes.ply', [points[remaining_inds], colors[remaining_inds], labels[remaining_inds]], ['x', 'y', 'z', 'red', 'green', 'blue', 'label'])
     
-    print('\n--- 5) normals variant ---\n')
+    # print('\n--- 5) normals variant ---\n')
 
     radius_normals = 0.3        # valeur de départ, à ajuster à l'échelle du nuage
     nb_draws = 100
@@ -348,5 +408,29 @@ if __name__ == '__main__':
               [points[remaining_inds], colors[remaining_inds], labels[remaining_inds]],
               ['x', 'y', 'z', 'red', 'green', 'blue', 'label'])
     
+
+    print('\n--- Bonus : accélération (avec normales) ---\n')
+    nb_draws = 100
+    threshold_in = 0.10
+    threshold_angle = 25
+    nb_planes = 5
+
+    fast_fn = lambda p, n, nd, th, ang: RANSAC_normals_fast(p, n, nd, th, ang, sample_ratio=0.05, nb_candidates=5)
+
+    times = {}
+    for name, tag, fn in [('sans accélération', 'ref', RANSAC_normals), ('avec accélération', 'fast', fast_fn)]:
+        t0 = time.time()
+        p_inds, r_inds, p_labels = recursive_RANSAC_normals(points, normals, nb_draws, threshold_in,
+                                                            threshold_angle, nb_planes, fn)
+        times[tag] = time.time() - t0
+        print('{} : {:.3f} s'.format(name, times[tag]))
+        for l in range(nb_planes):
+            print('   plan {} : {} points'.format(l, np.count_nonzero(p_labels == l)))
+        print('   restants : {} points'.format(len(r_inds)))
+        write_ply('../best_planes_normals_{}.ply'.format(tag),
+                [points[p_inds], colors[p_inds], labels[p_inds], p_labels.astype(np.int32)],
+                ['x', 'y', 'z', 'red', 'green', 'blue', 'label', 'plane_label'])
+
+    print('gain : x{:.1f}'.format(times['ref'] / times['fast']))
     print('Done')
     
