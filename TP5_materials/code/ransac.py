@@ -397,9 +397,9 @@ if __name__ == '__main__':
         points, normals, nb_draws, threshold_in, threshold_angle, nb_planes)
     print('recursive RANSAC with normals done in {:.3f} seconds'.format(time.time() - t0))
 
-    for l in range(nb_planes):
-        print('plane {}: {} points'.format(l, np.count_nonzero(plane_labels == l)))
-    print('remaining: {} points'.format(len(remaining_inds)))
+    # for l in range(nb_planes):
+    #     print('plane {}: {} points'.format(l, np.count_nonzero(plane_labels == l)))
+    # print('remaining: {} points'.format(len(remaining_inds)))
 
     write_ply('../best_planes_normals.ply',
               [points[plane_inds], colors[plane_inds], labels[plane_inds], plane_labels.astype(np.int32)],
@@ -411,8 +411,8 @@ if __name__ == '__main__':
 
     print('\n--- Bonus : accélération (avec normales) ---\n')
     nb_draws = 100
-    threshold_in = 0.10
-    threshold_angle = 25
+    threshold_in = 0.08
+    threshold_angle = 15
     nb_planes = 5
 
     fast_fn = lambda p, n, nd, th, ang: RANSAC_normals_fast(p, n, nd, th, ang, sample_ratio=0.05, nb_candidates=5)
@@ -424,9 +424,9 @@ if __name__ == '__main__':
                                                             threshold_angle, nb_planes, fn)
         times[tag] = time.time() - t0
         print('{} : {:.3f} s'.format(name, times[tag]))
-        for l in range(nb_planes):
-            print('   plan {} : {} points'.format(l, np.count_nonzero(p_labels == l)))
-        print('   restants : {} points'.format(len(r_inds)))
+        # for l in range(nb_planes):
+        #     print('   plan {} : {} points'.format(l, np.count_nonzero(p_labels == l)))
+        # print('   restants : {} points'.format(len(r_inds)))
         write_ply('../best_planes_normals_{}.ply'.format(tag),
                 [points[p_inds], colors[p_inds], labels[p_inds], p_labels.astype(np.int32)],
                 ['x', 'y', 'z', 'red', 'green', 'blue', 'label', 'plane_label'])
